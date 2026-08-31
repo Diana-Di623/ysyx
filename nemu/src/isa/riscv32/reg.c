@@ -14,7 +14,10 @@
 ***************************************************************************************/
 
 #include <isa.h>
+#include <stdbool.h>
+#include <stdio.h>
 #include "local-include/reg.h"
+#include "common.h"
 
 const char *regs[] = {
   "$0", "ra", "sp", "gp", "tp", "t0", "t1", "t2",
@@ -24,8 +27,27 @@ const char *regs[] = {
 };
 
 void isa_reg_display() {
+  for(int i=0;i<4;i++)
+  {
+    for(int j=0;j<8;j++)
+    {
+      printf("%s:0x%08x\t",regs[8*i+j],cpu.gpr[8*i+j]);
+    }
+    printf("\n");
+  }
 }
 
 word_t isa_reg_str2val(const char *s, bool *success) {
+  for(int i=0;i<32;i++)
+  {
+    if(strcmp(s,regs[i])==0)
+    {
+      word_t value=cpu.gpr[i];
+      *success=true;
+      return value;
+    }
+  }
+  printf("don't find the reg!");
+  *success=false;
   return 0;
 }

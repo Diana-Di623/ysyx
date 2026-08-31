@@ -17,7 +17,15 @@
 #include <cpu/cpu.h>
 #include <readline/readline.h>
 #include <readline/history.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 #include "sdb.h"
+#include "common.h"
+#include "memory/paddr.h"
+#include "utils.h"
 
 static int is_batch_mode = false;
 
@@ -49,9 +57,55 @@ static int cmd_c(char *args) {
 
 
 static int cmd_q(char *args) {
-  return -1;
+  nemu_state.state=NEMU_QUIT;
+  exit(0);
 }
 
+static int cmd_si(char *args)
+{
+  char *arg = strtok(NULL, " ");//只有一个参数第二次读返回null
+  if(arg==NULL)cpu_exec(1);
+  else{
+    cpu_exec(atoi(arg));
+  }
+  return 0;
+}
+
+static int cmd_info(char *args)
+{
+  args=strtok(NULL, " ");
+  if(args==NULL)printf("Usage:info w/r");
+  if(*args=='r')
+  {
+     isa_reg_display();
+  }
+  return 0;
+}
+
+static int cmd_x(char *args)
+{ char *len=strtok(NULL, " ");
+  args=strtok(NULL, " ");
+  uint32_t addr=strtol(args,NULL,16);
+  uint32_t N=strtol(len,NULL,10);
+   for(int i=0;i<N;i++)
+  {
+    word_t mem=paddr_read(addr+i*4, 4);
+    printf("0x%08x\t",mem);
+    if((i+1)%4==0){
+    printf("\n");
+  }
+}
+  printf("\n");
+  return 0;
+}
+static int cmd_p(char *args)
+{ if(args==NULL)printf("Usage:p <expression>\n");
+  bool success;
+  word_t ret=expr(args,&success);
+  if(success==false)printf("make token fail!");
+  printf("0x%x\n",ret);
+  return 0;
+}
 static int cmd_help(char *args);
 
 static struct {
@@ -62,7 +116,10 @@ static struct {
   { "help", "Display information about all supported commands", cmd_help },
   { "c", "Continue the execution of the program", cmd_c },
   { "q", "Exit NEMU", cmd_q },
-
+  { "si","Single step ",cmd_si},
+  {"info","Display some infomation",cmd_info},
+  {"x","Scan memory",cmd_x},
+  {"p","evaluate the expression",cmd_p},
   /* TODO: Add more commands */
 
 };
@@ -71,7 +128,7 @@ static struct {
 
 static int cmd_help(char *args) {
   /* extract the first argument */
-  char *arg = strtok(NULL, " ");
+  char *arg = strtok(NULL, " ");//char *strtok(char *str, const char *delim);delim:分隔符，第一次调用str传字符传，后面NULL
   int i;
 
   if (arg == NULL) {
@@ -133,11 +190,32 @@ void sdb_mainloop() {
     if (i == NR_CMD) { printf("Unknown command '%s'\n", cmd); }
   }
 }
-
+void test_expr()
+{
+  FILE* fp=fopen("/home/kirin/Desktop/linux/ysyx-workbench/nemu/tools/gen-expr/input","r");
+  if(fp==NULL)perror("can't load file");
+  word_t right_res;
+  char *e=NULL;
+  size_t len=0;
+  bool success=false;
+  while(1){
+  if(fscanf(fp,"%u",&right_res)==-1)break;
+  int read=getline(&e,&len,fp);
+  e[read-1]='\0';
+  word_t res=expr(e,&success);
+  assert(success);
+  if(res!=right_res)
+  {
+    printf("expect:%u,get:%u",right_res,res);
+    assert(0);
+  }
+  }
+  printf("pass the expr test!\n");
+}
 void init_sdb() {
   /* Compile the regular expressions. */
   init_regex();
-
+  test_expr();
   /* Initialize the watchpoint pool. */
   init_wp_pool();
 }
