@@ -19,5 +19,8 @@
 #include <common.h>
 
 word_t expr(char *e, bool *success);
-
+void init_wp_pool();
+void wp_display();
+void create_watchpoint(char *args,word_t ret);
+void delete_watchpoint(uint32_t NO);
 #endif

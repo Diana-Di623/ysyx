@@ -13,6 +13,7 @@
 * See the Mulan PSL v2 for more details.
 ***************************************************************************************/
 
+#include <assert.h>
 #include <isa.h>
 #include <cpu/cpu.h>
 #include <readline/readline.h>
@@ -24,13 +25,13 @@
 #include <string.h>
 #include "sdb.h"
 #include "common.h"
+#include "debug.h"
 #include "memory/paddr.h"
 #include "utils.h"
 
 static int is_batch_mode = false;
 
 void init_regex();
-void init_wp_pool();
 
 /* We use the `readline' library to provide more flexibility to read from stdin. */
 static char* rl_gets() {
@@ -61,6 +62,34 @@ static int cmd_q(char *args) {
   exit(0);
 }
 
+static int cmd_help(char *args);
+static int cmd_si(char *args);
+static int cmd_info(char *args);
+static int cmd_x(char *args);
+static int cmd_p(char *args);
+static int cmd_w(char *args);
+static int cmd_d(char *args);
+
+static struct {
+  const char *name;
+  const char *description;
+  int (*handler) (char *);
+} cmd_table [] = {
+  { "help", "Display information about all supported commands", cmd_help },
+  { "c", "Continue the execution of the program", cmd_c },
+  { "q", "Exit NEMU", cmd_q },
+  { "si","Single step ",cmd_si},
+  {"info","Display some infomation",cmd_info},
+  {"x","Scan memory",cmd_x},
+  {"p","Evaluate the expression",cmd_p},
+  {"w","Watchpoint",cmd_w},
+  {"d","Delete watchpoint",cmd_d}
+  /* TODO: Add more commands */
+
+};
+
+#define NR_CMD ARRLEN(cmd_table)
+
 static int cmd_si(char *args)
 {
   char *arg = strtok(NULL, " ");//只有一个参数第二次读返回null
@@ -74,10 +103,16 @@ static int cmd_si(char *args)
 static int cmd_info(char *args)
 {
   args=strtok(NULL, " ");
-  if(args==NULL)printf("Usage:info w/r");
+  if(args==NULL){printf("Usage:info w/r");
+  assert(0);
+  }
   if(*args=='r')
   {
      isa_reg_display();
+  }
+  if(*args=='w')
+  {
+    wp_display();
   }
   return 0;
 }
@@ -99,33 +134,33 @@ static int cmd_x(char *args)
   return 0;
 }
 static int cmd_p(char *args)
-{ if(args==NULL)printf("Usage:p <expression>\n");
+{ if(args==NULL){printf("Usage:p <expression>\n");
+  assert(0);
+  }
   bool success;
   word_t ret=expr(args,&success);
-  if(success==false)printf("make token fail!");
+  if(success==false)printf("expr fail!\n");
   printf("0x%x\n",ret);
   return 0;
 }
-static int cmd_help(char *args);
-
-static struct {
-  const char *name;
-  const char *description;
-  int (*handler) (char *);
-} cmd_table [] = {
-  { "help", "Display information about all supported commands", cmd_help },
-  { "c", "Continue the execution of the program", cmd_c },
-  { "q", "Exit NEMU", cmd_q },
-  { "si","Single step ",cmd_si},
-  {"info","Display some infomation",cmd_info},
-  {"x","Scan memory",cmd_x},
-  {"p","evaluate the expression",cmd_p},
-  /* TODO: Add more commands */
-
-};
-
-#define NR_CMD ARRLEN(cmd_table)
-
+static int cmd_w(char *args)
+{ bool success;
+  if(args==NULL){printf("Usage:w <expression>");
+  assert(0);}
+  word_t ret=expr(args, &success);
+  if(success==false)printf("expr fail!");
+  else{
+    create_watchpoint(args,ret);
+  }
+  return 0;
+}
+static int cmd_d(char *args){
+   if(args==NULL){printf("Usage:d <expression>");
+  assert(0);}
+  uint32_t NO=strtol(args,NULL,10);
+  delete_watchpoint(NO);
+  return 0;
+}
 static int cmd_help(char *args) {
   /* extract the first argument */
   char *arg = strtok(NULL, " ");//char *strtok(char *str, const char *delim);delim:分隔符，第一次调用str传字符传，后面NULL
@@ -215,7 +250,7 @@ void test_expr()
 void init_sdb() {
   /* Compile the regular expressions. */
   init_regex();
-  test_expr();
+  //test_expr();
   /* Initialize the watchpoint pool. */
   init_wp_pool();
 }

@@ -22,10 +22,9 @@
 #include <regex.h>
 #include <stdbool.h>
 #include <string.h>
-
+#include <memory/paddr.h>
 enum {
-  TK_NOTYPE = 256, TK_EQ,TK_NEQ,TK_LE,TK_GE,TK_AND,TK_OR,TK_NUM,TK_REG,TK_NEG
-
+  TK_NOTYPE = 256, TK_EQ,TK_NEQ,TK_LE,TK_GE,TK_AND,TK_OR,TK_NUM,TK_REG,TK_NEG,TK_HNUM,TK_POINTER,TK_L,TK_G
   /* TODO: Add more token types */
 
 };
@@ -47,13 +46,16 @@ static struct rule {
   {"==", TK_EQ},        // equal
   {"!=",TK_NEQ},        //not equal
   {"<=",TK_LE},         //less equal
+  {"<",TK_L},           //less
+  {">",TK_G},       //greater
   {">=",TK_GE},         //greater equal
   {"&&",TK_AND},        //logical and
  {"\\|\\|",TK_OR},         //logical or
  {"\\(",'('},            //left brace
  {"\\)",')'},            //right brace
+ {"0[xX][0-9a-f]+",TK_HNUM},
  {"[0-9]+u?",TK_NUM},    //number
- {"\\$[a-zA-Z0-9]",TK_REG}//register
+ {"\\$[a-zA-Z0-9]+",TK_REG}//register
 };
 
 #define NR_REGEX ARRLEN(rules)
@@ -108,35 +110,45 @@ static bool make_token(char *e) {
          * to record the token in the array `tokens'. For certain types
          * of tokens, some extra actions should be performed.
          */
-
+        if(rules[i].token_type!=TK_NOTYPE)
+        {         
+          int pre_token_type=tokens[nr_token-1].type;
         switch (rules[i].token_type) {
-         case TK_NOTYPE:
-            break;
           case '-':
             bool is_neg=false;
             if(nr_token==0)
               is_neg=true;
             else{
-              int pre_token_type=tokens[nr_token-1].type;
-              if(pre_token_type=='('||pre_token_type=='*'||pre_token_type=='-'||pre_token_type=='/'||pre_token_type=='+'||pre_token_type==TK_EQ||pre_token_type==TK_AND||pre_token_type==TK_GE||pre_token_type==TK_LE||pre_token_type==TK_NEQ||pre_token_type==TK_OR||pre_token_type==TK_NEG)
+     
+              if(pre_token_type=='('||pre_token_type=='*'||pre_token_type=='-'||pre_token_type=='/'||pre_token_type=='+'||pre_token_type==TK_EQ||pre_token_type==TK_AND||pre_token_type==TK_GE||pre_token_type==TK_LE||pre_token_type==TK_NEQ||pre_token_type==TK_OR||pre_token_type==TK_NEG||pre_token_type==TK_L||pre_token_type==TK_G)
               {
                 is_neg=true;
               }
             }
              tokens[nr_token].type=(is_neg==false)?'-':TK_NEG;
-             strncpy(tokens[nr_token].str, substr_start, substr_len);
-             tokens[nr_token].str[substr_len] = '\0';
-             nr_token++;
+              break;
+          case'*':
+              bool is_pointer=false;
+            if(nr_token==0)
+              is_pointer=true;
+            else{
+              if(pre_token_type=='('||pre_token_type=='*'||pre_token_type=='-'||pre_token_type=='/'||pre_token_type=='+'||pre_token_type==TK_EQ||pre_token_type==TK_AND||pre_token_type==TK_GE||pre_token_type==TK_LE||pre_token_type==TK_NEQ||pre_token_type==TK_OR||pre_token_type==TK_NEG||pre_token_type==TK_L||pre_token_type==TK_G)
+              {
+                is_pointer=true;
+              }
+            }
+             tokens[nr_token].type=(is_pointer==false)?'*':TK_POINTER;
               break;
           default: 
           {
             tokens[nr_token].type=rules[i].token_type;
-            strncpy(tokens[nr_token].str, substr_start, substr_len);
-            tokens[nr_token].str[substr_len] = '\0';
-            nr_token++;
             break;
           }
         }
+          strncpy(tokens[nr_token].str, substr_start, substr_len);
+          tokens[nr_token].str[substr_len] = '\0';
+          nr_token++;
+      }
         break;
       }
     }
@@ -164,9 +176,8 @@ int check_parentheses(int p,int q)
   return false;
  }
  int find_main_op(int p,int q)
- {
+ {  int priority=9;
     int pairs=0;
-    int priority=0;
     int ret=-1;
   for(int i=p;i<=q;i++)
   {
@@ -182,13 +193,35 @@ int check_parentheses(int p,int q)
     }
     else if(pairs>0)continue;
     else{
-      if(tokens[i].type=='+'||tokens[i].type=='-')
-     { priority=1;
+      if(tokens[i].type==TK_OR)
+      {
+        ret=i;
+        priority=0;
+      }
+      if((tokens[i].type==TK_AND)&&priority>0)
+      {
+        ret=i;
+        priority=1;
+      }
+      if((tokens[i].type==TK_EQ||tokens[i].type==TK_NEQ)&&priority>1)
+      { 
+        ret=i;
+        priority=2;
+      }
+      if((tokens[i].type==TK_L||tokens[i].type==TK_G||tokens[i].type==TK_GE||tokens[i].type==TK_LE)&&priority>2)
+      {
+        ret=i;
+        priority=3;
+      }
+      if((tokens[i].type=='+'||tokens[i].type=='-')&&priority>3)
+     { 
       ret=i;
+      priority=4;
      }
-     if(tokens[i].type=='*'||tokens[i].type=='/')
+     if((tokens[i].type=='*'||tokens[i].type=='/')&&priority>4)
      {
-      if(priority!=1)ret=i;
+      ret=i;
+      priority=5;
      }
     }
   }
@@ -208,7 +241,12 @@ word_t eval(int p, int q, bool *success) {
      */
     if(tokens[p].type==TK_NUM)
     {
-     word_t value=strtol(tokens[p].str,0,10);
+     word_t value=strtol(tokens[p].str,NULL,10);
+     return value;
+    }
+    if(tokens[p].type==TK_HNUM)
+     {
+     word_t value=strtol(tokens[p].str,NULL,16);
      return value;
     }
     if (tokens[p].type==TK_REG) {
@@ -219,10 +257,6 @@ word_t eval(int p, int q, bool *success) {
      *success=false;
       return 0;
   }
-  else if(tokens[p].type==TK_NEG){
-    word_t value=eval(p+1,q, success);
-    return -value;
-  }
   else if (check_parentheses(p, q) == true) {
     /* The expression is surrounded by a matched pair of parentheses.
      * If that is the case, just throw away the parentheses.
@@ -231,10 +265,32 @@ word_t eval(int p, int q, bool *success) {
   }
   else {
     word_t op = find_main_op(p,q);
+        if (op == -1) {
+      if (tokens[p].type == TK_NEG) {
+        return -eval(p + 1, q, success);
+      }
+
+      if (tokens[p].type == TK_POINTER) {
+        word_t addr = eval(p + 1, q, success);
+        return paddr_read(addr, 4);
+      }
+
+      *success = false;
+      return 0;
+    }
+
     word_t val1 = eval(p, op - 1,success);
     word_t val2 = eval(op + 1, q,success);
 
     switch (tokens[op].type) {
+      case TK_OR: return val1||val2;
+      case TK_EQ: return val1==val2;
+      case TK_NEQ:return val1!=val2;
+      case TK_AND:return val1&&val2;
+      case TK_L:return val1>val2;
+      case TK_GE:return val1>=val2;
+      case TK_LE:return val1<=val2;
+      case TK_G:return val1<val2;
       case '+': return val1 + val2;
       case '-': return val1-val2;
       case '*': return val1*val2;
